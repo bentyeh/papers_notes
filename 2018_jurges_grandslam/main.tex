@@ -1,0 +1,435 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1\baselineskip}
+
+\begin{document}
+
+\section{Overview}
+
+In the GRAND-SLAM model, each read $i$ has:
+\begin{itemize}
+    \item $n_i$: the number of thymine positions at which a $T\to C$ mismatch could occur,
+    \item $y_i$: the number of observed $T\to C$ mismatches,
+    \item $z_i \in \{0,1\}$: a hidden label indicating whether the read came from old RNA ($z_i=0$) or new RNA ($z_i=1$).
+\end{itemize}
+
+The hierarchical model is
+\[
+\begin{gathered}
+z_i \sim \mathrm{Bernoulli}(\pi_g) \\
+y_i \mid z_i=0; n_i \sim \mathrm{Binomial}(n_i,p_e),
+\qquad
+y_i \mid z_i=1; n_i \sim \mathrm{Binomial}(n_i,p_c)
+\end{gathered}
+\]
+where \begin{itemize}
+    \item $p_e$ (presumably ``e'' for \emph{error}) is the average T to C mismatch rate in unlabeled RNA, and
+    \item $p_c$ (presumably ``c'' for \emph{conversion}) is the average T to C mismatch rate in labeled RNA.
+\end{itemize}
+The probability mass functions are therefore
+\[
+\begin{gathered}
+P(z_i = 0 \mid p_e, p_c, \pi_g) = P(z_i = 0 \mid \pi_g) = 1 - \pi_g, \\
+P(z_i = 1 \mid p_e, p_c, \pi_g) = P(z_i = 1 \mid \pi_g) = \pi_g, \\
+P(y_i \mid z_i = 0, p_e, p_c, \pi_g; n_i) = P(y_i \mid z_i = 0, p_e; n_i) = \mathrm{Bin}(y_i; n_i, p_e), \\
+P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) = P(y_i \mid z_i = 1, p_c; n_i) = \mathrm{Bin}(y_i; n_i, p_c)
+\end{gathered}
+\]
+where
+\[
+\mathrm{Bin}(y_i;n_i,p) = \binom{n_i}{y_i} p^{y_i} (1 - p)^{n_i - y_i}.
+\]
+
+The joint probability mass function can therefore be decomposed as
+\[
+\begin{aligned}
+P(y_i, z_i \mid p_e, p_c, \pi_g; n_i)
+&= P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid p_e, p_c, \pi_g; n_i) \\
+&= P(y_i \mid z_i, p_e, p_c; n_i) P(z_i \mid \pi_g) \\
+&= \begin{cases}
+    (1 - \pi_g) \mathrm{Bin}(y_i; n_i, p_e), & z_i = 0 \\
+    \pi_g \, \mathrm{Bin}(y_i; n_i, p_c), & z_i = 1
+\end{cases}
+\end{aligned}
+\]
+
+The likelihood for the observed data $y_i$ for read $i$ is the two-component binomial mixture (equation 1 from the paper)
+\[
+\begin{aligned}
+P(y_i \mid p_e, p_c, \pi_g; n_i)
+&=
+\sum_{z_i} P(y_i, z_i \mid p_e, p_c, \pi_g; n_i) \\
+&=
+\sum_{z_i} P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid p_e, p_c, \pi_g; n_i) \\
+&= 
+(1 - \pi_g)\,\mathrm{Bin}(y_i;n_i,p_e)
++ \pi_g\,\mathrm{Bin}(y_i;n_i,p_c).
+\end{aligned}
+\]
+
+The primary objective is to estimate $\pi_g$, the proportion of reads from gene $g$ that are nascent. However, the probability that a given read is nascent is simply the posterior probability
+$$
+\begin{aligned}
+P(z_i = 1 \mid y_i, p_e, p_c, \pi_g; n_i)
+&= \frac{P(z_i = 1, y_i, p_e, p_c, \pi_g; n_i)}{P(y_i, p_e, p_c, \pi_g; n_i)} \\
+&= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)}{P(y_i \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)} \\
+&= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i)}{P(y_i \mid p_e, p_c, \pi_g; n_i)} \\
+&= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i)}{\sum_{z_i} P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid p_e, p_c, \pi_g; n_i)} \\
+&= \frac{P(y_i \mid z_i = 1, p_e, p_c; n_i) P(z_i = 1 \mid \pi_g)}{\sum_{z_i} P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid \pi_g)} \\
+&= \frac{\pi_g\,\mathrm{Bin}(y_i; n_i, p_c)}{(1 - \pi_g)\,\mathrm{Bin}(y_i;n_i,p_e)
++ \pi_g\,\mathrm{Bin}(y_i;n_i,p_c)}
+\end{aligned}
+$$
+
+\subsection*{Standard EM procedure}
+
+\textbf{Step 1: Initialize the parameters.}
+
+Choose initial guesses $p_e^{(0)}$, $p_c^{(0)}$, and $\pi_g^{(0)}$ for every gene $g$.
+
+\textbf{Step 2: E-step.}
+
+For each read $i$ from gene $g$, compute the posterior probability that it came from the \emph{new} RNA component:
+\[
+\begin{aligned}
+r_i^{(t)}
+&=
+P(z_i=1\mid y_i,p_e^{(t)},p_c^{(t)},\pi_g^{(t)}; n_i) \\
+&= \frac{\pi_g^{(t)}\,\mathrm{Bin}(y_i;n_i,p_c^{(t)})}
+{(1-\pi_g^{(t)})\,\mathrm{Bin}(y_i;n_i,p_e^{(t)})+\pi_g^{(t)}\,\mathrm{Bin}(y_i;n_i,p_c^{(t)})} \\
+&= \frac{\pi_g^{(t)} \binom{n_i}{y_i} \left(p_c^{(t)}\right)^{y_i} \left(1 - p_c^{(t)}\right)^{n_i - y_i}}
+{(1 - \pi_g^{(t)}) \binom{n_i}{y_i} \left(p_e^{(t)}\right)^{y_i} \left(1 - p_e^{(t)}\right)^{n_i - y_i} + \pi_g^{(t)} \binom{n_i}{y_i} \left(p_c^{(t)}\right)^{y_i} \left(1 - p_c^{(t)}\right)^{n_i - y_i}} \\
+&= \frac{\pi_g^{(t)} \left(p_c^{(t)}\right)^{y_i} \left(1 - p_c^{(t)}\right)^{n_i - y_i}}
+{(1 - \pi_g^{(t)}) \left(p_e^{(t)}\right)^{y_i} \left(1 - p_e^{(t)}\right)^{n_i - y_i} + \pi_g^{(t)} \left(p_c^{(t)}\right)^{y_i} \left(1 - p_c^{(t)}\right)^{n_i - y_i}}.
+\end{aligned}
+\]
+
+Then $1-r_i^{(t)}$ is the posterior probability that the read came from the \emph{old} RNA component.
+
+Intuitively, this step ``softly assigns'' each read to one of the two components.
+
+\textbf{Step 3: M-step for the mixing proportions.}
+
+For each gene $g$, update the estimated fraction of new RNA by averaging those soft assignments over all reads from that gene:
+\[
+\pi_g^{(t+1)}
+=
+\frac{1}{m_g}\sum_{i\in g} r_i^{(t)},
+\]
+where $m_g$ is the number of reads mapped to gene $g$.
+
+\textbf{Step 4: M-step for $p_e$.}
+
+Update the mismatch probability in the old-RNA component by the weighted fraction of mismatches assigned to that component:
+\[
+p_e^{(t+1)}
+=
+\frac{\sum_i (1-r_i^{(t)})y_i}
+{\sum_i (1-r_i^{(t)})n_i}.
+\]
+
+\textbf{Step 5: M-step for $p_c$.}
+
+Update the mismatch probability in the new-RNA component analogously:
+\[
+p_c^{(t+1)}
+=
+\frac{\sum_i r_i^{(t)}y_i}
+{\sum_i r_i^{(t)}n_i}. 
+\]
+
+\textbf{Step 6: Iterate until convergence.}
+
+Repeat the E-step and M-step until the parameter updates are tiny or the log-likelihood stops changing.
+
+This is exactly the usual EM recipe for a mixture model: estimate hidden memberships, then re-estimate the component parameters from those memberships.
+
+\subsubsection*{Why this standard EM idea fails here}
+
+The key point in the paper's sentence is that both binomial components have the same mode:
+\[
+\text{mode of } \mathrm{Binomial}(n,p_e)=0,
+\qquad
+\text{mode of } \mathrm{Binomial}(n,p_c)=0,
+\]
+because both $p_e$ and $p_c$ are small in SLAM-seq data.
+
+That means the most common observation under \emph{both} components is $y=0$, i.e. a read with no $T\to C$ mismatches at all. In practice, most reads have $y_i=0$, so the dataset is dominated by observations that are simultaneously very plausible under the old-RNA model and the new-RNA model.
+
+For such reads, the E-step responsibility is
+\[
+r_i^{(t)}
+=
+\frac{\pi_g^{(t)}(1-p_c^{(t)})^{n_i}}
+{(1-\pi_g^{(t)})(1-p_e^{(t)})^{n_i}+\pi_g^{(t)}(1-p_c^{(t)})^{n_i}},
+\]
+which does not strongly favor either component when both $p_e^{(t)}$ and $p_c^{(t)}$ are small. So the E-step cannot cleanly separate the huge pile of zero-mismatch reads into ``old'' versus ``new'' origin.
+
+Once that happens, the M-step also becomes weakly identified:
+\begin{itemize}
+    \item the update for $p_e$ is driven mostly by reads that EM currently thinks are old,
+    \item the update for $p_c$ is driven mostly by reads that EM currently thinks are new,
+    \item but the overwhelming majority of reads ($y_i=0$) are nearly interchangeable between the two components.
+\end{itemize}
+
+So different combinations of $p_e$, $p_c$, and the mixture weights $\pi_g$ explain the data almost equally well. The likelihood surface therefore has a long, flat ridge rather than a sharp optimum, and EM makes very little progress because its soft assignments barely change from one iteration to the next.
+
+This is the practical meaning of the paper's claim that ``standard approaches'' failed: the naive EM algorithm for the full two-component mixture cannot reliably disentangle $p_e$ and $p_c$ when the data are dominated by $y=0$ reads, since zero mismatches are the most likely outcome for both old and new RNA.
+
+GRAND-SLAM's workaround is to first estimate $p_e$ separately, then look only at the tail with sufficiently many mismatches, where the old-RNA component contributes negligibly. In that tail, the data are much more informative about $p_c$, so the estimation problem becomes identifiable enough to solve.
+
+\section*{Estimating $p_e$}
+
+Methods proposed by Jürges et al.:\begin{itemize}
+    \item Using an additional sample without 4sU labeling, such as a timepoint 0 sample or spike-in RNAs.
+    \item Linear regression model to predict T to C error rate from the other error rates (e.g., T to A and T to G error rates).
+\end{itemize}
+
+\section*{Estimating $p_c$}
+
+\subsection*{Data preprocessing}
+
+The sufficient statistics for parameter estimation are collected in a matrix $A^{(g)}$. Each entry $A_{k,n}^{(g)}$ is the number of reads mapped to a genomic region within gene $g$ containing $n$ thymines with $k$ observed T to C mismatches. Aggregating counts across genes generates the matrix
+\[
+A=\{A_{k,n}\}=\sum_g A^{(g)}.
+\]
+
+Consider reads with a given number of thymine sites $n$ (i.e., a column of $A$). Let $e_{k,n}$ be the number of reads with $k$ mismatches expected to originate from unlabeled RNA. Since $p_e < p_c$ (the underlying assumption of 4sU labeling), there exists a threshold number of T to C mismatches $k$ at and above which only a minor fraction of reads (say, 1\%) originates from the unlabeled component (i.e., $e_{k,n} \leq 0.01 a_{k,n}$). Based on this threshold, we partition the cells $(k, n)$ into 2 mutually exclusive sets:
+\begin{itemize}
+    \item $R=\{(k,n): e_{k,n} \leq 0.01 a_{k,n}\}$: the inclusion set where unlabeled RNAs are expected to contribute a minor fraction of reads
+    \begin{itemize}
+        \item Let $R_n=\{k:(k,n)\in R\}$ be the retained mismatch counts for reads with $n$ possible conversion sites.
+    \end{itemize}
+    \item $X=\{(k,n): e_{k,n}>0.01\,a_{k,n}\}$: the exclusion set where unlabeled RNAs are expected to contribute more than 1\% of reads
+    \begin{itemize}
+        \item Let $X_n=\{k:(k,n)\in X\}$ be the excluded mismatch counts for reads with $n$ possible conversion sites.
+    \end{itemize}
+\end{itemize}
+
+How is $e_{k,n}$ defined? Let $M_n = \sum_{k'} A_{k',n}$ be the column sum of $A$: the total number of reads (across all genes) containing $n$ thymine sites. If all of these reads were generated from the unlabeled RNA component ($z_i = 0$), their counts could be collected into a matrix $E = \{E_{k,n}\}$, with the same column sums $M_n$ as in the matrix $A$, but a different distribution within each column. Now, consider a particular value of $n$. Given $p_e$, whether each of $M_n$ reads is observed with $k$ mismatches (and is added to bin $E_{k,n}$) is an independent Bernoulli random variable
+$$
+G_{i,k,n} \sim \mathrm{Bernoulli}(P(y_i = k \mid z_i = 0; n) = \mathrm{Bin}(k; n, p_e))
+$$
+Therefore, the count of each bin is
+$$
+E_{k,n} = \sum_{i \, \mid \, n_i = n} G_{i,k,n}
+$$
+with expected value
+\[
+\begin{aligned}
+e_{k,n} = \mathbb{E}[E_{k,n}]
+&= \mathbb{E}\left[\sum_{i \, \mid \, n_i = n} G_{i,k,n} \right] \\
+&= \sum_{i \, \mid \, n_i = n} \mathbb{E}[G_{i,k,n}] \\
+&= \sum_{i \, \mid \, n_i = n} \mathrm{Bin}(k; n, p_e) \\
+&= M_n\,\mathrm{Bin}(k;n,p_e) \\
+&= \mathrm{Bin}(k;n,p_e)\sum_{k'} a_{k',n}.
+\end{aligned}
+\]
+
+\subsection*{Model: Observed data, latent variables}
+
+Let $U$ and $A^*$ be the labeled and unlabeled counts such that $U + A^* = A$. We now consider a latent variable model of $A^*$. GRAND-SLAM treats the retained cell counts (as defined in the section above) as if they are all generated from the 4sU-labeled component. As an example, consider a fixed $n$ (i.e., a column of $A$), say $n = 3$ possible conversion sites. Let's say that the threshold value of $k$ was 2, such that reads with 2 or 3 conversions out of 3 possible conversion sites are now assumed to be from the 4sU-labeled component. (We assume that reads with 0 or 1 conversions may have come from both the unlabeled and 4sU-labeled components.) Therefore, we assume that $A^*_{2,3} = A_{2,3}$ and $A^*_{3,3} = A_{3,3}$. $A^*_{0, 3}$ and $A^*_{1,3}$ are the latent variables in this latent variable model.
+
+For fixed $n$, imagine an underlying total number $N_n$ of reads generated from the 4sU-labeled component, with complete cell counts
+\[
+a^*_{k,n},\qquad k=0,1,\dots,n,
+\qquad
+\sum_{k=0}^n a^*_{k,n}=N_n.
+\]
+These complete counts satisfy
+\[
+(a^*_{0,n},\dots,a^*_{n,n})\sim \mathrm{Multinomial}\Bigl(N_n;\mathrm{Bin}(0;n,p_c),\dots,\mathrm{Bin}(n;n,p_c)\Bigr),
+\]
+meaning that among the $N_n$ reads with $n$ possible conversion sites, each read is assigned to exactly one mismatch class $k=0,1,\dots,n$.
+
+The observed data are the retained counts
+\[
+a_{k,n},\qquad k\in R_n,
+\]
+and the latent variables are the missing counts in the excluded cells,
+\[
+a^*_{k,n},\qquad k\in X_n.
+\]
+
+\subsection*{Complete-data likelihood}
+
+If the complete counts $a^*_{k,n}$ were known, estimating $p_c$ would be easy. The complete-data likelihood is
+\[
+P(A^* \mid p_c)
+=
+\prod_n
+\left[
+\frac{N_n!}{\prod_{k=0}^n a^*_{k,n}!}
+\prod_{k=0}^n \mathrm{Bin}(k;n,p_c)^{a^*_{k,n}}
+\right].
+\]
+so the complete-data log-likelihood is
+\[
+\begin{aligned}
+\ell_c(p_c)
+&=
+\sum_n\sum_{k=0}^n a^*_{k,n}\log \mathrm{Bin}(k;n,p_c)+\text{const} \\
+&= \sum_n\sum_{k=0}^n a^*_{k,n} \left(\log\binom{n}{k}+k\log p_c +(n-k)\log(1-p_c) \right) + \text{const} \\
+&= \sum_n\sum_{k=0}^n a^*_{k,n} \left(k\log p_c +(n-k)\log(1-p_c) \right) + \text{const} \\
+&= \log p_c \left(\sum_n \sum_{k=0}^n a^*_{k,n} k \right) + \log(1-p_c) \left( \sum_n\sum_{k=0}^n a^*_{k,n} (n-k) \right) + \text{const} 
+\end{aligned}
+\]
+
+Setting the first derivative of the log-likelihood equal to zero, we get
+\[
+0
+= \frac{\partial \ell_c}{\partial p_c}
+= \frac{1}{p_c} \left(\sum_n \sum_{k=0}^n a^*_{k,n} k \right)
+- \frac{1}{1-p_c} \left( \sum_n\sum_{k=0}^n a^*_{k,n} (n-k) \right).
+\]
+Rearranging,
+\[
+\frac{1-p_c}{p_c}
+=
+\frac{\sum_n\sum_{k=0}^n a^*_{k,n}(n-k)}{\sum_n\sum_{k=0}^n a^*_{k,n}k},
+\]
+so
+\[
+p_c
+=
+\frac{\sum_n\sum_{k=0}^n a^*_{k,n}k}{\sum_n\sum_{k=0}^n a^*_{k,n}k + \sum_n\sum_{k=0}^n a^*_{k,n}(n-k)}.
+\]
+Since
+\[
+\sum_n\sum_{k=0}^n a^*_{k,n}k + \sum_n\sum_{k=0}^n a^*_{k,n}(n-k)
+=
+\sum_n\sum_{k=0}^n a^*_{k,n}n,
+\]
+this simplifies to
+\[
+\widehat p_c
+=
+\frac{\sum_{k,n} k\,a^*_{k,n}}{\sum_{k,n} n\,a^*_{k,n}}.
+\]
+So with complete data, the solution is just ``total conversions divided by total conversion opportunities.''
+
+\subsection*{Observed-data likelihood}
+
+Because the excluded cells are unobserved, the actual observed-data likelihood is obtained by summing over all possible missing low-mismatch counts. For each fixed $n$, introduce:
+\begin{itemize}
+    \item $O_n=\sum_{k\in R_n} a_{k,n}$, the total number of retained reads with $n$ possible conversion sites;
+    \item $q_n(p_c)=\sum_{k\in R_n}\mathrm{Bin}(k;n,p_c)$, the probability that a read from a 4sU-labeled RNA contains enough mismatches and is retained.
+\end{itemize}
+Then the retained counts follow a truncated multinomial model
+\[
+P(A^*_\text{obs} \mid p_c)
+=
+\prod_n
+\left[
+\frac{O_n!}{\prod_{k\in R_n} a_{k,n}!}
+\prod_{k\in R_n}
+\left(\frac{\mathrm{Bin}(k;n,p_c)}{q_n(p_c)}\right)^{a_{k,n}}
+\right].
+\]
+and
+\[
+\ell_{\mathrm{obs}}(p_c)
+=
+\sum_n\sum_{k\in R_n} a_{k,n}\log \mathrm{Bin}(k;n,p_c)
+-\sum_n O_n\log q_n(p_c)
++\text{const}.
+\]
+Compared to the complete-data likelihood, this observed-data likelihood is harder to optimize due to the normalizing terms $q_n(p_c)$. EM avoids this difficulty by repeatedly reconstructing the missing counts from the current parameter value and then maximizing the simpler complete-data criterion.
+
+\subsection*{How the E-step turns a posterior into an expectation}
+
+Your intuition is right: in a traditional EM setup, the E-step starts from the conditional distribution of the latent variables given the observed data and the current parameter value. Here that conditional distribution is the distribution of the missing excluded-cell counts given the retained counts and the current estimate $p_c^{(t)}$.
+
+For fixed $n$, under $p_c^{(t)}$, a read lands in an excluded cell with conditional probabilities proportional to
+\[
+\mathrm{Bin}(k;n,p_c^{(t)}),\qquad k\in X_n.
+\]
+Likewise, among all reads generated from the $p_c$ model, the probability of surviving the truncation is
+\[
+q_n\bigl(p_c^{(t)}\bigr)=\sum_{j\in R_n}\mathrm{Bin}(j;n,p_c^{(t)}).
+\]
+Since we observed $O_n$ retained reads, the implied expected total number of underlying $p_c$ reads is
+\[
+\mathrm{E}[N_n\mid \text{observed data},p_c^{(t)}]
+=
+\frac{O_n}{q_n(p_c^{(t)})}.
+\]
+Therefore the posterior expectation of the complete count in cell $(k,n)$ is
+\[
+\mathrm{E}[a^*_{k,n}\mid \text{observed data},p_c^{(t)}]
+=
+\mathrm{Bin}(k;n,p_c^{(t)})\,\frac{O_n}{q_n(p_c^{(t)})}.
+\]
+This is exactly where the ``probability of the latent variables'' becomes an expectation: EM does not maximize over the latent counts directly in the E-step. Instead, it computes their conditional distribution and then replaces the unknown complete-data sufficient statistics by their conditional expectations.
+
+If we denote these expected complete counts by $a^{(t+1)}_{k,n}$, then we get equation (5)
+\[
+a^{(t+1)}_{k,n}
+=
+\frac{\mathrm{Bin}(k;n,p_c^{(t)})}{\sum_{j\in R_n}\mathrm{Bin}(j;n,p_c^{(t)})}
+\sum_{j\in R_n} a_{j,n}.
+\]
+
+In words, the E-step fills in the missing low-mismatch cells using the posterior mean under the current value of $p_c$.
+
+\subsection*{The M-step and joint optimization viewpoint}
+
+Once the missing counts have been replaced by their expectations, EM maximizes the expected complete-data log-likelihood
+\[
+Q(p_c\mid p_c^{(t)})
+=
+\mathrm{E}\bigl[\ell_c(p_c)\mid \text{observed data},p_c^{(t)}\bigr]
+=
+\sum_n\sum_k a^{(t+1)}_{k,n}\log \mathrm{Bin}(k;n,p_c)+\text{const}.
+\]
+Expanding again,
+\[
+Q(p_c\mid p_c^{(t)})
+=
+\left(\sum_{k,n} k\,a^{(t+1)}_{k,n}\right)\log p_c
++
+\left(\sum_{k,n}(n-k)\,a^{(t+1)}_{k,n}\right)\log(1-p_c)
++\text{const}.
+\]
+Differentiating and setting the derivative to zero gives
+\[
+\frac{\partial Q}{\partial p_c}
+=
+\frac{\sum_{k,n} k\,a^{(t+1)}_{k,n}}{p_c}
+-
+\frac{\sum_{k,n}(n-k)\,a^{(t+1)}_{k,n}}{1-p_c}
+=0,
+\]
+so
+\[
+p_c^{(t+1)}
+=
+\frac{\sum_{k,n} k\,a^{(t+1)}_{k,n}}{\sum_{k,n} n\,a^{(t+1)}_{k,n}}.
+\]
+This is equation (6).
+
+It is reasonable to say informally that EM ``jointly optimizes'' the missing counts and $p_c$, but more precisely the algorithm alternates between:
+\begin{itemize}
+    \item estimating the hidden counts by their posterior expectations under the current parameter value, and
+    \item optimizing $p_c$ as if those expected counts were the complete data.
+\end{itemize}
+So the missing data are not treated as free parameters; they are latent variables whose conditional expectations are updated at each iteration.
+
+\subsection*{Summary of GRAND-SLAM's Section 3.3 procedure}
+
+\begin{enumerate}
+    \item Estimate $p_e$ separately.
+    \item Aggregate counts $a_{k,n}$ across genes.
+    \item Use $p_e$ to identify excluded low-mismatch cells $X$ where old RNA may still contribute non-negligibly.
+    \item Regard those excluded counts as latent missing data under a pure-$p_c$ model.
+    \item Write down the simple complete-data multinomial/binomial likelihood.
+    \item E-step: replace the missing counts by their posterior expectations under the current $p_c^{(t)}$.
+    \item M-step: update $p_c$ by total expected conversions divided by total expected opportunities.
+    \item Use the EM update inside the paper's bisection wrapper, because plain EM converges slowly.
+\end{enumerate}
+
+\end{document}
