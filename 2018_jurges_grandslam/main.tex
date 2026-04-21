@@ -2,11 +2,32 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage[dvipsnames]{xcolor}
+
+\DeclareMathOperator*{\argmax}{arg\,max}
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{1\baselineskip}
 
+\date{2026-04-20}
+\author{Benjamin Yeh}
+\title{\vspace{-2cm}GRAND-SLAM notes}
+
 \begin{document}
+
+\maketitle
+\renewcommand{\baselinestretch}{0.75}\normalsize
+\tableofcontents
+\renewcommand{\baselinestretch}{1.0}\normalsize
+
+\vfill
+
+\textbf{Disclaimer}: These notes were made solely for the purpose of helping myself understand the GRAND-SLAM model. Relevant parts of the paper were copied or paraphrased directly. I do not seek to infringe on the authors'/journal's copyright or take credit for their work. Much of these notes were written with help from OpenAI Prism and Google Gemini. These notes assume familiarity with statistics and the EM algorithm at the level presented in \href{https://cs229.stanford.edu/main_notes.pdf}{Stanford CS 229} and \href{https://bebi103b.github.io/}{Caltech BE/Bi 103b}.
+
+\textbf{Reference}: Jürges C, Dölken L, Erhard F. Dissecting newly transcribed and old RNA using GRAND-SLAM. \textit{Bioinformatics}. 2018;34(13):i218-i226. doi:\href{https://doi.org/10.1093/bioinformatics/bty256}{10.1093/bioinformatics/bty256}
+
+\pagebreak
 
 \section{Overview}
 
@@ -71,12 +92,12 @@ P(y_i \mid p_e, p_c, \pi_g; n_i)
 \end{aligned}
 \]
 
-The primary objective is to estimate $\pi_g$, the proportion of reads from gene $g$ that are nascent. However, the probability that a given read is nascent is simply the posterior probability
+The probability that a given read is nascent is simply the posterior probability
 $$
 \begin{aligned}
 P(z_i = 1 \mid y_i, p_e, p_c, \pi_g; n_i)
-&= \frac{P(z_i = 1, y_i, p_e, p_c, \pi_g; n_i)}{P(y_i, p_e, p_c, \pi_g; n_i)} \\
-&= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)}{P(y_i \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)} \\
+% &= \frac{P(z_i = 1, y_i, p_e, p_c, \pi_g; n_i)}{P(y_i, p_e, p_c, \pi_g; n_i)} \\
+% &= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)}{P(y_i \mid p_e, p_c, \pi_g; n_i) P(p_e, p_c, \pi_g; n_i)} \\
 &= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i)}{P(y_i \mid p_e, p_c, \pi_g; n_i)} \\
 &= \frac{P(y_i \mid z_i = 1, p_e, p_c, \pi_g; n_i) P(z_i = 1 \mid p_e, p_c, \pi_g; n_i)}{\sum_{z_i} P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid p_e, p_c, \pi_g; n_i)} \\
 &= \frac{P(y_i \mid z_i = 1, p_e, p_c; n_i) P(z_i = 1 \mid \pi_g)}{\sum_{z_i} P(y_i \mid z_i, p_e, p_c, \pi_g; n_i) P(z_i \mid \pi_g)} \\
@@ -85,7 +106,30 @@ P(z_i = 1 \mid y_i, p_e, p_c, \pi_g; n_i)
 \end{aligned}
 $$
 
-\subsection*{Standard EM procedure}
+The primary objective is to estimate $\pi_g$, the proportion of reads from gene $g$ that are nascent.
+$$
+f(\pi_g \mid \mathbf{y}, p_e, p_c; \mathbf{n})
+= \frac{\left(\prod_i P(y_i \mid p_e, p_c, \pi_g; n_i)\right) P(\pi_g)}{P(\mathbf{y})}
+$$
+The GRAND-SLAM model uses a uniform prior for $\pi_g$, expressed as a beta distribution with hyperparameters $\alpha = \beta = 1$, yielding
+$$
+f(\pi_g \mid \mathbf{y}, p_e, p_c; \mathbf{n})
+= \frac{\left(\prod_i P(y_i \mid p_e, p_c, \pi_g; n_i)\right) \cdot B(\pi_g \mid \alpha = 1, \beta = 1)}{\int_0^1 \left(\prod_i P(y_i \mid p_e, p_c, \pi_g'; n_i)\right) \cdot B(\pi_g' \mid \alpha = 1, \beta = 1) d\pi_g'}
+$$
+
+While the parameters $\pi_g$, $p_e$, and $p_c$ can in theory be estimated together via a single EM procedure, the parameters may be poorly identifiable and the procedure may suffer from poor convergence, as described in the next section. GRAND-SLAM instead fits $p_e$ and $p_c$ separately, then uses fixed estimates of those parameters to estimate $\pi_g$.
+
+The posterior distribution of $\pi_g$ is computed by numerically integrating the evidence (the denominator) via the trapezoidal rule, then approximated via a beta distribution with parameters $\alpha_g$ and $\beta_g$:
+$$
+f(\pi_g \mid \mathbf{y}, p_e, p_c; \mathbf{n})
+\approx b_g(\pi_g; \alpha_g, \beta_g)
+= \frac{\pi_g^{\alpha_g - 1} (1 - \pi_g)^{\beta_g - 1}}{B(\alpha_g, \beta_g)}
+$$
+where $B(\alpha_g, \beta_g) = \frac{\Gamma(\alpha_g) \Gamma(\beta_g)}{\Gamma(\alpha_g + \beta_g)}$ is the beta function.
+
+\section{Parameter Estimation}
+
+\subsection{Standard EM procedure}
 
 \textbf{Step 1: Initialize the parameters.}
 
@@ -148,50 +192,30 @@ Repeat the E-step and M-step until the parameter updates are tiny or the log-lik
 
 This is exactly the usual EM recipe for a mixture model: estimate hidden memberships, then re-estimate the component parameters from those memberships.
 
-\subsubsection*{Why this standard EM idea fails here}
+\subsubsection{Why the standard EM approach fails here}
 
-The key point in the paper's sentence is that both binomial components have the same mode:
-\[
-\text{mode of } \mathrm{Binomial}(n,p_e)=0,
-\qquad
-\text{mode of } \mathrm{Binomial}(n,p_c)=0,
-\]
-because both $p_e$ and $p_c$ are small in SLAM-seq data.
-
-That means the most common observation under \emph{both} components is $y=0$, i.e. a read with no $T\to C$ mismatches at all. In practice, most reads have $y_i=0$, so the dataset is dominated by observations that are simultaneously very plausible under the old-RNA model and the new-RNA model.
-
-For such reads, the E-step responsibility is
+Under standard 4sU-labeling conditions, the authors caution that ``$y = 0$ [observing no T to C mismatches] is the mode of both component distributions of the binomial mixture model'' because both $p_e$ and $p_c$ are small. Therefore, the dataset is dominated by observations that are simultaneously very plausible under the old-RNA model and the new-RNA model. For such reads, the E-step responsibility is
 \[
 r_i^{(t)}
 =
 \frac{\pi_g^{(t)}(1-p_c^{(t)})^{n_i}}
 {(1-\pi_g^{(t)})(1-p_e^{(t)})^{n_i}+\pi_g^{(t)}(1-p_c^{(t)})^{n_i}},
 \]
-which does not strongly favor either component when both $p_e^{(t)}$ and $p_c^{(t)}$ are small. So the E-step cannot cleanly separate the huge pile of zero-mismatch reads into ``old'' versus ``new'' origin.
-
-Once that happens, the M-step also becomes weakly identified:
-\begin{itemize}
-    \item the update for $p_e$ is driven mostly by reads that EM currently thinks are old,
-    \item the update for $p_c$ is driven mostly by reads that EM currently thinks are new,
-    \item but the overwhelming majority of reads ($y_i=0$) are nearly interchangeable between the two components.
-\end{itemize}
-
-So different combinations of $p_e$, $p_c$, and the mixture weights $\pi_g$ explain the data almost equally well. The likelihood surface therefore has a long, flat ridge rather than a sharp optimum, and EM makes very little progress because its soft assignments barely change from one iteration to the next.
-
-This is the practical meaning of the paper's claim that ``standard approaches'' failed: the naive EM algorithm for the full two-component mixture cannot reliably disentangle $p_e$ and $p_c$ when the data are dominated by $y=0$ reads, since zero mismatches are the most likely outcome for both old and new RNA.
+which does not strongly favor either component when both $p_e^{(t)}$ and $p_c^{(t)}$ are small. The likelihood surface therefore has a long, flat ridge rather than a sharp optimum, and EM makes very little progress because its soft assignments barely change from one iteration to the next. This is the practical meaning of the paper's claim that ``standard approaches to estimate pe and pc based on the expectation maximization (EM) algorithm failed.''
 
 GRAND-SLAM's workaround is to first estimate $p_e$ separately, then look only at the tail with sufficiently many mismatches, where the old-RNA component contributes negligibly. In that tail, the data are much more informative about $p_c$, so the estimation problem becomes identifiable enough to solve.
 
-\section*{Estimating $p_e$}
+\subsection{\texorpdfstring{Estimating $p_e$}{Estimating pe}}
 
-Methods proposed by Jürges et al.:\begin{itemize}
+Methods proposed by Jürges et al.:
+\begin{itemize}
     \item Using an additional sample without 4sU labeling, such as a timepoint 0 sample or spike-in RNAs.
     \item Linear regression model to predict T to C error rate from the other error rates (e.g., T to A and T to G error rates).
 \end{itemize}
 
-\section*{Estimating $p_c$}
+\subsection{\texorpdfstring{Estimating $p_c$}{Estimating pc}}
 
-\subsection*{Data preprocessing}
+\subsubsection{Data preprocessing}
 
 The sufficient statistics for parameter estimation are collected in a matrix $A^{(g)}$. Each entry $A_{k,n}^{(g)}$ is the number of reads mapped to a genomic region within gene $g$ containing $n$ thymines with $k$ observed T to C mismatches. Aggregating counts across genes generates the matrix
 \[
@@ -212,50 +236,38 @@ Consider reads with a given number of thymine sites $n$ (i.e., a column of $A$).
 
 How is $e_{k,n}$ defined? Let $M_n = \sum_{k'} A_{k',n}$ be the column sum of $A$: the total number of reads (across all genes) containing $n$ thymine sites. If all of these reads were generated from the unlabeled RNA component ($z_i = 0$), their counts could be collected into a matrix $E = \{E_{k,n}\}$, with the same column sums $M_n$ as in the matrix $A$, but a different distribution within each column. Now, consider a particular value of $n$. Given $p_e$, whether each of $M_n$ reads is observed with $k$ mismatches (and is added to bin $E_{k,n}$) is an independent Bernoulli random variable
 $$
-G_{i,k,n} \sim \mathrm{Bernoulli}(P(y_i = k \mid z_i = 0; n) = \mathrm{Bin}(k; n, p_e))
+\mathbf{1}\{y_i = k\} \sim \mathrm{Bernoulli}(P(y_i = k \mid z_i = 0; n) = \mathrm{Bin}(k; n, p_e))
 $$
 Therefore, the count of each bin is
 $$
-E_{k,n} = \sum_{i \, \mid \, n_i = n} G_{i,k,n}
+E_{k,n} = \sum_{i \, \mid \, n_i = n} \mathbf{1}\{y_i = k\}
 $$
 with expected value
 \[
 \begin{aligned}
 e_{k,n} = \mathbb{E}[E_{k,n}]
-&= \mathbb{E}\left[\sum_{i \, \mid \, n_i = n} G_{i,k,n} \right] \\
-&= \sum_{i \, \mid \, n_i = n} \mathbb{E}[G_{i,k,n}] \\
+&= \mathbb{E}\left[\sum_{i \, \mid \, n_i = n} \mathbf{1}\{y_i = k\} \right] \\
+&= \sum_{i \, \mid \, n_i = n} \mathbb{E}[\mathbf{1}\{y_i = k\}] \\
 &= \sum_{i \, \mid \, n_i = n} \mathrm{Bin}(k; n, p_e) \\
 &= M_n\,\mathrm{Bin}(k;n,p_e) \\
 &= \mathrm{Bin}(k;n,p_e)\sum_{k'} a_{k',n}.
 \end{aligned}
 \]
 
-\subsection*{Model: Observed data, latent variables}
+\subsubsection{Model: Observed data, latent variables}
 
-Let $U$ and $A^*$ be the labeled and unlabeled counts such that $U + A^* = A$. We now consider a latent variable model of $A^*$. GRAND-SLAM treats the retained cell counts (as defined in the section above) as if they are all generated from the 4sU-labeled component. As an example, consider a fixed $n$ (i.e., a column of $A$), say $n = 3$ possible conversion sites. Let's say that the threshold value of $k$ was 2, such that reads with 2 or 3 conversions out of 3 possible conversion sites are now assumed to be from the 4sU-labeled component. (We assume that reads with 0 or 1 conversions may have come from both the unlabeled and 4sU-labeled components.) Therefore, we assume that $A^*_{2,3} = A_{2,3}$ and $A^*_{3,3} = A_{3,3}$. $A^*_{0, 3}$ and $A^*_{1,3}$ are the latent variables in this latent variable model.
+Let $A^\text{(unlabeled)}$ and $A^*$ be the unlabeled and labeled counts such that $A^\text{(unlabeled)} + A^* = A$. ($A^\text{(unlabeled)}$ is only introduced here once as a placeholder; it is not used further in the model.)
 
-For fixed $n$, imagine an underlying total number $N_n$ of reads generated from the 4sU-labeled component, with complete cell counts
-\[
-a^*_{k,n},\qquad k=0,1,\dots,n,
-\qquad
-\sum_{k=0}^n a^*_{k,n}=N_n.
-\]
-These complete counts satisfy
-\[
-(a^*_{0,n},\dots,a^*_{n,n})\sim \mathrm{Multinomial}\Bigl(N_n;\mathrm{Bin}(0;n,p_c),\dots,\mathrm{Bin}(n;n,p_c)\Bigr),
-\]
-meaning that among the $N_n$ reads with $n$ possible conversion sites, each read is assigned to exactly one mismatch class $k=0,1,\dots,n$.
+Consider a latent variable model of the labeled counts $A^*$, where the entries of $A^*$ are partitioned into unobserved and observed sets
+\begin{itemize}
+    \item $A_\text{unobs}^* = \{a^*_{k,n} \mid (k, n) \in X \}$. For fixed $n$, denote the corresponding subset as $A^*_{\mathrm{unobs},n}$.
+    \item $A_\text{obs}^* = \{a^*_{k,n} \mid (k, n) \in R \} = \{ a_{k,n} \mid (k, n) \in R \}$
+\end{itemize}
+such that $A_\text{unobs}^* \cup A_\text{obs}^* = A^*$ (here we treat $A^* = \{ a_{k,n}^* \}$ as a set rather than a matrix). GRAND-SLAM treats the retained cell counts (defined in the section above) as if they are all generated from the 4sU-labeled component, so the retained cell counts correspond to the observed labeled counts $A_\text{obs}^*$, hence $a^*_{k,n} = a_{k, n}$ for $(k, n) \in R$.
 
-The observed data are the retained counts
-\[
-a_{k,n},\qquad k\in R_n,
-\]
-and the latent variables are the missing counts in the excluded cells,
-\[
-a^*_{k,n},\qquad k\in X_n.
-\]
+As an example, consider a fixed $n$ (i.e., a column of $A$), say $n = 3$ possible conversion sites. Let's say that the threshold value of $k$ was 2, such that reads with 2 or 3 conversions out of 3 possible conversion sites are now assumed to be from the 4sU-labeled component. (We assume that reads with 0 or 1 conversions may have come from both the unlabeled and 4sU-labeled components.) Therefore, we assume that $A^*_{2,3} = A_{2,3}$ and $A^*_{3,3} = A_{3,3}$ -- these are the observed variables. $A^*_{0, 3}$ and $A^*_{1,3}$ are the unobserved latent variables.
 
-\subsection*{Complete-data likelihood}
+\subsubsection{Complete-data likelihood}
 
 If the complete counts $a^*_{k,n}$ were known, estimating $p_c$ would be easy. The complete-data likelihood is
 \[
@@ -312,12 +324,12 @@ this simplifies to
 \]
 So with complete data, the solution is just ``total conversions divided by total conversion opportunities.''
 
-\subsection*{Observed-data likelihood}
+\subsubsection{Observed-data likelihood}
 
-Because the excluded cells are unobserved, the actual observed-data likelihood is obtained by summing over all possible missing low-mismatch counts. For each fixed $n$, introduce:
+Because the excluded cells are unobserved, the actual observed-data likelihood is obtained by summing over all possible unobserved low-mismatch counts. For each fixed $n$, introduce:
 \begin{itemize}
     \item $O_n=\sum_{k\in R_n} a_{k,n}$, the total number of retained reads with $n$ possible conversion sites;
-    \item $q_n(p_c)=\sum_{k\in R_n}\mathrm{Bin}(k;n,p_c)$, the probability that a read from a 4sU-labeled RNA contains enough mismatches and is retained.
+    \item $q_n(p_c)=\sum_{k\in R_n}\mathrm{Bin}(k;n,p_c)$, the probability that a read from a 4sU-labeled RNA contains enough mismatches and is retained (observed).
 \end{itemize}
 Then the retained counts follow a truncated multinomial model
 \[
@@ -328,7 +340,7 @@ P(A^*_\text{obs} \mid p_c)
 \frac{O_n!}{\prod_{k\in R_n} a_{k,n}!}
 \prod_{k\in R_n}
 \left(\frac{\mathrm{Bin}(k;n,p_c)}{q_n(p_c)}\right)^{a_{k,n}}
-\right].
+\right]
 \]
 and
 \[
@@ -338,98 +350,221 @@ and
 -\sum_n O_n\log q_n(p_c)
 +\text{const}.
 \]
-Compared to the complete-data likelihood, this observed-data likelihood is harder to optimize due to the normalizing terms $q_n(p_c)$. EM avoids this difficulty by repeatedly reconstructing the missing counts from the current parameter value and then maximizing the simpler complete-data criterion.
+Compared to the complete-data likelihood, this observed-data likelihood is harder to optimize due to the normalizing terms $q_n(p_c)$. EM avoids this difficulty by repeatedly reconstructing the unobserved counts from the current parameter value and then maximizing the simpler complete-data criterion.
 
-\subsection*{How the E-step turns a posterior into an expectation}
+We first outline the application of the EM algorithm to this latent variable model, starting with the observed-data log likelihood
+$$
+\begin{aligned}
+\ell_\text{obs}(p_c; A_\text{obs}^*)
+&= \log p(A_\text{obs}^* \mid p_c) \\
+&= \log \sum_{A_\text{unobs}^*} p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c) \\
+&= \log \sum_{A_\text{unobs}^*} Q(A_\text{unobs}^*) \frac{p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c)}{Q(A_\text{unobs}^*)} \\
+&\geq \sum_{A_\text{unobs}^*} Q(A_\text{unobs}^*) \log \frac{p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c)}{Q(A_\text{unobs}^*)} \\
+&= \mathrm{ELBO}(A_\text{obs}^*, Q, p_c).
+\end{aligned}
+$$
 
-Your intuition is right: in a traditional EM setup, the E-step starts from the conditional distribution of the latent variables given the observed data and the current parameter value. Here that conditional distribution is the distribution of the missing excluded-cell counts given the retained counts and the current estimate $p_c^{(t)}$.
+To make the inequality tight, we set the proposal distribution to the posterior distribution of the unobserved data
+$$
+Q(A_\text{unobs}^*)
+= Q(A_\text{unobs}^* \mid A_\text{obs}^*, p_c^{(t)})
+= p(A_\text{unobs}^* \mid A_\text{obs}^*, p_c^{(t)}).
+$$
 
-For fixed $n$, under $p_c^{(t)}$, a read lands in an excluded cell with conditional probabilities proportional to
-\[
-\mathrm{Bin}(k;n,p_c^{(t)}),\qquad k\in X_n.
-\]
-Likewise, among all reads generated from the $p_c$ model, the probability of surviving the truncation is
-\[
-q_n\bigl(p_c^{(t)}\bigr)=\sum_{j\in R_n}\mathrm{Bin}(j;n,p_c^{(t)}).
-\]
-Since we observed $O_n$ retained reads, the implied expected total number of underlying $p_c$ reads is
-\[
-\mathrm{E}[N_n\mid \text{observed data},p_c^{(t)}]
-=
-\frac{O_n}{q_n(p_c^{(t)})}.
-\]
-Therefore the posterior expectation of the complete count in cell $(k,n)$ is
-\[
-\mathrm{E}[a^*_{k,n}\mid \text{observed data},p_c^{(t)}]
-=
-\mathrm{Bin}(k;n,p_c^{(t)})\,\frac{O_n}{q_n(p_c^{(t)})}.
-\]
-This is exactly where the ``probability of the latent variables'' becomes an expectation: EM does not maximize over the latent counts directly in the E-step. Instead, it computes their conditional distribution and then replaces the unknown complete-data sufficient statistics by their conditional expectations.
+The E-step defines the expected value function
+$$
+\begin{aligned}
+\mathbb{Q}(p_c \mid p_c^{(t)})
+&= \mathbb{E}_{A_\text{unobs}^* \sim Q} \log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c) \\
+&= \sum_{A_\text{unobs}^*} Q(A_\text{unobs}^* \mid A_\text{obs}^*, p_c^{(t)}) \log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c)
+\end{aligned}
+$$
+The M-step then maximizes the expected value function with respect to the parameter $p_c$
+$$
+p_c^{(t+1)} = \argmax_{p_c} \mathbb{Q}(p_c \mid p_c^{(t)}).
+$$
 
-If we denote these expected complete counts by $a^{(t+1)}_{k,n}$, then we get equation (5)
+To apply the EM algorithm, we need expressions for the joint log likelihood $\log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c)$ and the latent variable posterior $p(A_\text{unobs}^* \mid A_\text{obs}^*, p_c^{(t)})$. The expression for the joint log likelihood was already presented earlier in the ``Complete-data likelihood'' section:
 \[
-a^{(t+1)}_{k,n}
-=
-\frac{\mathrm{Bin}(k;n,p_c^{(t)})}{\sum_{j\in R_n}\mathrm{Bin}(j;n,p_c^{(t)})}
-\sum_{j\in R_n} a_{j,n}.
+\begin{aligned}
+\log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c)
+&= \sum_n\sum_{k=0}^n a^*_{k,n}\log \mathrm{Bin}(k;n,p_c) + \text{const} \\
+&= \sum_n \left( \sum_{k \in R_n} a_{k,n} \log \mathrm{Bin}(k; n, p_c) + \sum_{k \in X_n} a^*_{k,n} \log \mathrm{Bin}(k; n, p_c) \right) + \text{const}
+\end{aligned}
 \]
 
-In words, the E-step fills in the missing low-mismatch cells using the posterior mean under the current value of $p_c$.
+The GRAND-SLAM paper does not specify the specific likelihood model for unobserved counts $A_\text{unobs}^*$; it only presents the E-step and M-step updates. Here, I present one likelihood model suggested by Gemini that is consistent with the GRAND-SLAM E- and M-step updates; other consistent models may exist. To express the posterior distribution for $A_\text{unobs}^*$ explicitly, consider reads from the labeled RNA component with a fixed number of conversion opportunities $n$. Each read is a Bernoulli trial with a probability of ``success'' (retained and observed) $q_n(p_c)$. The number of ``failures'' (reads excluded and unobserved) $U_n = \sum_{k \in X_n} a^*_{k,n}$ before observing $O_n$ ``successes'' therefore follows a Negative Binomial distribution. Given $U_n$, the joint distribution of the specific unobserved counts $\{a^*_{k,n}\}_{k \in X_n}$ scattered across the exclusion bins is a Multinomial distribution with probabilities proportional to $\mathrm{Bin}(k;n,p_c)$. Therefore, for each $n$, $A_{\text{unobs},n}^*$ is drawn from a hierarchical model
+$$
+\begin{gathered}
+U_n \mid A_\text{obs}^*, p_c \sim \mathrm{NB}(O_n, q_n(p_c)) \\
+A_{\text{unobs}, n}^* \mid U_n \sim \mathrm{Multinomial} \left(U_n, \left\{ \frac{\mathrm{Bin}(k;n,p_c)}{1-q_n(p_c)} \right\}_{k \in X_n} \right)
+\end{gathered}
+$$
+(More explicitly, $A_{\text{unobs}, n}^* = (a^*_{0,n},\dots,a^*_{k^*,n})$ where $k^* = \max_k \{k \in X_n\}$.) Note that for a given set of unobserved counts $A_{\text{unobs}}^*$, $U_n = \sum_{k \in X_n} a^*_{k,n}$ is fixed. Therefore, the marginal probability of $A_{\text{unobs}}^*$ is simply the joint probability evaluated exactly at $U_n$:
+$$
+\begin{aligned}
+p(A_\text{unobs}^* \mid A_\text{obs}^*, p_c)
+&= \prod_n p(A_{\text{unobs},n}^* \mid A_\text{obs}^*, p_c) \\
+&= \prod_n p(A_{\text{unobs},n}^*, U_n \mid A_\text{obs}^*, p_c) \\
+&= \prod_n p(A_{\text{unobs},n}^* \mid U_n, A_\text{obs}^*, p_c) p(U_n \mid A_\text{obs}^*, p_c) \\
+&= \prod_n \left[ \mathrm{Multinomial} \left(A_{\text{unobs},n}^*; U_n, \left\{ \frac{\mathrm{Bin}(k;n,p_c)}{1-q_n(p_c)} \right\}_{k \in X_n} \right) \mathrm{NB}(U_n; O_n, q_n(p_c)) \right]
+\end{aligned}
+$$
 
-\subsection*{The M-step and joint optimization viewpoint}
+(This expression can be fully expanded\footnote{
+$$
+\begin{aligned}
+p(A_\text{unobs}^* \mid A_\text{obs}^*, p_c)
+&= \prod_n \left[ \frac{U_n!}{\prod_{k \in X_n} a^*_{k,n}!} \left(\prod_{k \in X_n} \left( \frac{\mathrm{Bin}(k;n,p_c)}{1 - q_n(p_c)} \right)^{a^*_{k,n}} \right) \binom{O_n + U_n - 1}{U_n} (q_n(p_c))^{O_n} (1 - q_n(p_c))^{U_n} \right] \\
+&= \prod_n \left[ \frac{U_n!}{\prod_{k \in X_n} a^*_{k,n}!} \left(\prod_{k \in X_n} \left( \mathrm{Bin}(k;n,p_c) \right)^{a^*_{k,n}}\right) \frac{(O_n + U_n - 1)!}{U_n! (O_n - 1)!} (q_n(p_c))^{O_n} \right] \\
+&= \prod_n \left[ \frac{(O_n + U_n - 1)!}{(O_n - 1)! \prod_{k \in X_n} a^*_{k,n}!} (q_n(p_c))^{O_n} \prod_{k \in X_n} \left( \mathrm{Bin}(k;n,p_c) \right)^{a^*_{k,n}} \right]
+\end{aligned}
+$$}, but it is never used directly.) We are now ready to define the expected value function:
+$$
+\begin{aligned}
+\mathbb{Q}(p_c \mid p_c^{(t)})
+&= \mathbb{E}_{A_\text{unobs}^* \sim Q} \log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c) \\
+&= \mathbb{E}_{A_\text{unobs}^* \sim Q} \left[ \sum_n \left( \sum_{k \in R_n} a_{k,n} \log \mathrm{Bin}(k; n, p_c) + \sum_{k \in X_n} a^*_{k,n} \log \mathrm{Bin}(k; n, p_c) \right) + \text{const} \right] \\
+&= \sum_n \left( \sum_{k \in R_n} a_{k,n} \log \mathrm{Bin}(k; n, p_c) + \sum_{k \in X_n} \mathbb{E}_{A_\text{unobs}^* \sim Q}[a^*_{k,n}] \log \mathrm{Bin}(k; n, p_c) \right) + \text{const}
+\end{aligned}
+$$
+where the last equality uses the linearity of expectation. This equation shares the exact algebraic form of the complete-data log-likelihood, but with the cell counts replaced by their expected values under $Q$. This naturally defines the expected counts $a^{(t+1)}_{k,n}$:
+$$
+a^{(t+1)}_{k,n} = \begin{cases} a_{k,n} & k \in R_n \\ \mathbb{E}_Q[a^*_{k,n}] & k \in X_n \end{cases}
+$$
 
-Once the missing counts have been replaced by their expectations, EM maximizes the expected complete-data log-likelihood
-\[
-Q(p_c\mid p_c^{(t)})
-=
-\mathrm{E}\bigl[\ell_c(p_c)\mid \text{observed data},p_c^{(t)}\bigr]
-=
-\sum_n\sum_k a^{(t+1)}_{k,n}\log \mathrm{Bin}(k;n,p_c)+\text{const}.
-\]
-Expanding again,
-\[
-Q(p_c\mid p_c^{(t)})
-=
-\left(\sum_{k,n} k\,a^{(t+1)}_{k,n}\right)\log p_c
-+
-\left(\sum_{k,n}(n-k)\,a^{(t+1)}_{k,n}\right)\log(1-p_c)
-+\text{const}.
-\]
-Differentiating and setting the derivative to zero gives
-\[
-\frac{\partial Q}{\partial p_c}
-=
-\frac{\sum_{k,n} k\,a^{(t+1)}_{k,n}}{p_c}
--
-\frac{\sum_{k,n}(n-k)\,a^{(t+1)}_{k,n}}{1-p_c}
-=0,
-\]
-so
+To evaluate $\mathbb{E}_Q[a^*_{k,n}]$ for the unobserved bins, use the law of total expectation\footnote{Law of total expectation: $\mathbb{E}[X] = \mathbb{E}[\mathbb{E}[X \mid Y]]$} conditioning on the intermediate variable $U_n$ (the total number of unobserved reads for a given $n$):
+$$
+\mathbb{E}_Q[a^*_{k,n}] = \mathbb{E}_{U_n \sim Q} \big[ \mathbb{E}[a^*_{k,n} \mid U_n] \big]
+$$
+The inner conditional expectation is the mean of a single component in a Multinomial distribution, which is the total number of trials $U_n$ multiplied by the probability of falling into category $k$:
+$$
+\mathbb{E}[a^*_{k,n} \mid U_n] = U_n \frac{\mathrm{Bin}(k;n,p_c^{(t)})}{1-q_n(p_c^{(t)})}
+$$
+Substitute the inner expectation back into the outer expectation. Because $U_n$ is the only random variable, factor out the probabilities:
+$$
+\mathbb{E}_Q[a^*_{k,n}] = \mathbb{E}_{U_n} [ U_n ] \left( \frac{\mathrm{Bin}(k;n,p_c^{(t)})}{1-q_n(p_c^{(t)})} \right)
+$$
+The expectation $\mathbb{E}_{U_n} [ U_n ]$ is the mean of a Negative Binomial distribution representing the number of failures before $O_n$ successes, with a success probability of $q_n(p_c^{(t)})$. The mean of this distribution is:
+$$
+\mathbb{E}_{U_n}[U_n] = O_n \frac{1 - q_n(p_c^{(t)})}{q_n(p_c^{(t)})}
+$$
+Thus, we have
+$$
+\begin{aligned}
+\mathbb{E}_Q[a^*_{k,n}]
+&= \left( O_n \frac{1 - q_n(p_c^{(t)})}{q_n(p_c^{(t)})} \right) \left( \frac{\mathrm{Bin}(k;n,p_c^{(t)})}{1-q_n(p_c^{(t)})} \right) \\
+&= \frac{O_n \mathrm{Bin}(k;n,p_c^{(t)})}{q_n(p_c^{(t)})} \\
+&= \frac{\left(\sum_{k' \in R_n} a_{k',n}\right) \mathrm{Bin}(k;n,p_c^{(t)})}{\sum_{k'\in R_n}\mathrm{Bin}(k';n,p_c^{(t)})}
+\end{aligned}
+$$
+This finally gives equation (5) from the GRAND-SLAM paper,
+$$
+a^{(t+1)}_{k,n} = \begin{cases}
+a_{k,n} & k \in R_n \\
+\frac{\left(\sum_{k' \in R_n} a_{k',n}\right) \mathrm{Bin}(k;n,p_c^{(t)})}{\sum_{k'\in R_n}\mathrm{Bin}(k';n,p_c^{(t)})} & k \in X_n
+\end{cases}
+$$
+which we plug into the expected value function
+$$
+\begin{aligned}
+\mathbb{Q}(p_c \mid p_c^{(t)})
+&= \mathbb{E}_{A_\text{unobs}^* \sim Q} \log p(A_\text{obs}^*, A_\text{unobs}^* \mid p_c) \\
+&= \sum_n \sum_{k=0}^n a^{(t+1)}_{k,n} \log \mathrm{Bin}(k;n,p_c)+\text{const}.
+\end{aligned}
+$$
+In the M-step, we maximize $\mathbb{Q}(p_c \mid p_c^{(t)})$ over $p_c$. Since the form of $\mathbb{Q}(p_c \mid p_c^{(t)})$ is identical to the form of the complete-data log-likelihood $\ell_c(p_c)$, its maximum is of the same form as that of the complete-data log-likelihood
 \[
 p_c^{(t+1)}
 =
 \frac{\sum_{k,n} k\,a^{(t+1)}_{k,n}}{\sum_{k,n} n\,a^{(t+1)}_{k,n}}.
 \]
-This is equation (6).
 
-It is reasonable to say informally that EM ``jointly optimizes'' the missing counts and $p_c$, but more precisely the algorithm alternates between:
-\begin{itemize}
-    \item estimating the hidden counts by their posterior expectations under the current parameter value, and
-    \item optimizing $p_c$ as if those expected counts were the complete data.
+\subsubsection{GRAND-SLAM's bisection scheme}
+
+The GRAND-SLAM paper writes, ``We noticed that running the EM algorithm led to extremely slow convergence rates. Thus, we use the following bisection scheme instead: For the search interval $[l,r]$ (starting with $l=0$ and $r=1$), we set $p^{(t)} = \frac{l+r}{2}$ and compute $p^{(t+1)}$ by a single EM iteration. If $p^{(t+1)} < p^{(t)}$, we continue with the search interval $[l, p^{(t)}]$, otherwise with $[p^{(t)}, r]$. We stop if $r-l < 10^{-8}$.''
+
+Properties of this bisection scheme:\begin{itemize}
+\item Guaranteed to converge within an interval of $10^{-8}$ in exactly $\lceil \log_2(10^8) \rceil = 27$ iterations.
+\item Does not share the monotonically-improving likelihood guarantee of the standard EM algorithm. \textcolor{red}{(need proof) However, since the log-likelihood function is concave and unimodal, the bisection scheme is still guaranteed to converge to the global maximum $\hat{p}$.}
+\item Does not assume that $p^{(t+1)}$ falls in the interval $[l, r]$; the next sub-interval is chosen solely based on the boolean condition $p^{(t+1)} < p^{(t)}$. \textcolor{red}{(need proof) Nonetheless, for the GRAND-SLAM model, $p^{(t+1)}$ will always fall inside $[l, r]$, since for a concave log-likelihood of a scalar parameter, a single EM step will never overshoot the maximum likelihood estimate.}
 \end{itemize}
-So the missing data are not treated as free parameters; they are latent variables whose conditional expectations are updated at each iteration.
 
-\subsection*{Summary of GRAND-SLAM's Section 3.3 procedure}
+\section{Estimating RNA half-life}
 
-\begin{enumerate}
-    \item Estimate $p_e$ separately.
-    \item Aggregate counts $a_{k,n}$ across genes.
-    \item Use $p_e$ to identify excluded low-mismatch cells $X$ where old RNA may still contribute non-negligibly.
-    \item Regard those excluded counts as latent missing data under a pure-$p_c$ model.
-    \item Write down the simple complete-data multinomial/binomial likelihood.
-    \item E-step: replace the missing counts by their posterior expectations under the current $p_c^{(t)}$.
-    \item M-step: update $p_c$ by total expected conversions divided by total expected opportunities.
-    \item Use the EM update inside the paper's bisection wrapper, because plain EM converges slowly.
-\end{enumerate}
+State variable
+\begin{itemize}
+    \item $a$: total abundance of RNA species
+\end{itemize}
+Parameters
+\begin{itemize}
+    \item $\sigma$: transcription rate
+    \item $\delta$: decay rate
+\end{itemize}
+The governing first-order ODE model is
+$$
+\frac{da}{dt} = \sigma - \delta a(t), \qquad a(0) = a_0
+$$
+with solution to the initial value problem
+$$
+a(t) = \left(a_0 - \frac{\sigma}{\delta} \right) e^{-t \delta} + \frac{\sigma}{\delta}
+$$
+and steady-state $\frac{\sigma}{\delta}$. This ODE model is used to separately describe the abundance of pre-existing RNA $a_\text{pre}$ and newly synthesized RNA $a_\text{new}$.
+\begin{itemize}
+\item Pre-existing RNA is assumed to start with steady-state abundance and then decay without a production term. \textbf{This corresponds to the physical assumption that all new RNAs synthesized after the start of 4sU pulse are in the 4sU-labeled component with T to C conversion rate $p_c$.}
+  $$
+  a_\text{pre}(t) = \frac{\sigma}{\delta} e^{-t \delta}
+  $$
+\item New RNA starts from an initial abundance of 0.
+  $$
+  a_\text{new}(t) = - \frac{\sigma}{\delta} e^{-t \delta} + \frac{\sigma}{\delta}
+  $$
+\end{itemize}
+The total abundance is maintained at steady-state, $a_\text{pre}(t) + a_\text{new}(t) = \frac{\sigma}{\delta}$. At any time $t$, the proportion of new RNA out of total RNA is
+$$
+\begin{aligned}
+\pi(t)
+&= \frac{a_\text{new}(t)}{a_\text{new}(t) + a_\text{pre}(t)} \\
+&= \frac{- \frac{\sigma}{\delta} e^{-t \delta} + \frac{\sigma}{\delta}}{- \frac{\sigma}{\delta} e^{-t \delta} + \frac{\sigma}{\delta} + \frac{\sigma}{\delta} e^{-t \delta}} \\
+&= 1 - e^{-t \delta}
+\end{aligned}
+$$
+This can be used to estimate the decay rate (here, expressing the decay rate $\delta$ as a function of the random variable $\pi$, for which we have approximated its posterior distribution with a beta distribution $b_g(\pi_g; \alpha_g, \beta_g)$)
+$$
+\delta_t(\pi) = -\frac{1}{t} \log(1 - \pi)
+$$
+with inverse function
+$$
+\pi_t(\delta) = 1 - e^{-t \delta}.
+$$
+Then, the posterior density function of $\delta_t$ (posterior density because we are using the posterior density of $\pi_g$) is
+$$
+\begin{aligned}
+d(\delta; \alpha_g, \beta_g)
+&= \beta_g(\pi_t(\delta); \alpha_g, \beta_g) \left\lvert \frac{d\pi_t(\delta)}{d\delta} \right\rvert \\
+&= \frac{(\pi_t(\delta))^{\alpha_g - 1} (1 - (\pi_t(\delta)))^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta} \\
+&= \frac{(1 - e^{-t \delta})^{\alpha_g - 1} (e^{-t \delta})^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta} \\
+&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta})^{\alpha_g - 1} e^{-t \beta_g \delta + t \delta} e^{-t \delta} \\
+&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta})^{\alpha_g - 1} e^{-t \beta_g \delta}
+\end{aligned}
+$$
+with log posterior density
+$$
+\ell(\delta) = (\alpha_g - 1) \log(1 - e^{-t \delta}) - t \beta_g \delta + \text{const}.
+$$
+
+Generalized to multiple observations across differnt timepoints, if approximate posterior beta densities with parameters $(\alpha_i, \beta_i)$ are available at labeling times $t_1, \dots, t_m$, then—assuming the experiments are conditionally independent given a shared decay rate—the combined log-posterior for $\delta$ is, up to an additive constant,
+$$
+\ell(\delta)
+= \sum_{i=1}^m (\alpha_i - 1) \log\left(1 - e^{-t_i \delta}\right) - t_i \beta_i \delta + \text{const},
+$$
+which is equation (17) in Jürges et al. The MAP estimate is found numerically:
+$$
+\hat{\delta}_{\mathrm{MAP}} = \argmax_{\delta \ge 0} \sum_{i=1}^m (\alpha_i - 1) \log\left(1 - e^{-t_i \delta}\right) - t_i \beta_i \delta.
+$$
+and can be converted to the RNA half-life
+$$
+\hat{k} = \frac{\log 2}{\hat{\delta}_{\mathrm{MAP}}}.
+$$
 
 \end{document}
