@@ -10,7 +10,7 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{1\baselineskip}
 
-\date{2026-04-20}
+\date{2026-04-23}
 \author{Benjamin Yeh}
 \title{\vspace{-2cm}GRAND-SLAM notes}
 
@@ -117,7 +117,7 @@ f(\pi_g \mid \mathbf{y}, p_e, p_c; \mathbf{n})
 = \frac{\left(\prod_i P(y_i \mid p_e, p_c, \pi_g; n_i)\right) \cdot B(\pi_g \mid \alpha = 1, \beta = 1)}{\int_0^1 \left(\prod_i P(y_i \mid p_e, p_c, \pi_g'; n_i)\right) \cdot B(\pi_g' \mid \alpha = 1, \beta = 1) d\pi_g'}
 $$
 
-While the parameters $\pi_g$, $p_e$, and $p_c$ can in theory be estimated together via a single EM procedure, the parameters may be poorly identifiable and the procedure may suffer from poor convergence, as described in the next section. GRAND-SLAM instead fits $p_e$ and $p_c$ separately, then uses fixed estimates of those parameters to estimate $\pi_g$.
+While the parameters $\pi_g$, $p_e$, and $p_c$ can in theory be estimated together via a single EM procedure, the parameters may be poorly identifiable and the procedure may suffer from poor convergence, as described in the next section. GRAND-SLAM instead fits $p_e$ and $p_c$ separately, then uses fixed estimates of those parameters to estimate $\pi_g$. \textbf{Notably, GRAND-SLAM does not seem to provide any metric of variability (standard error, etc.) of its estimates of $p_e$ and $p_c$.}
 
 The posterior distribution of $\pi_g$ is computed by numerically integrating the evidence (the denominator) via the trapezoidal rule, then approximated via a beta distribution with parameters $\alpha_g$ and $\beta_g$:
 $$
@@ -490,16 +490,16 @@ Properties of this bisection scheme:\begin{itemize}
 \item Does not assume that $p^{(t+1)}$ falls in the interval $[l, r]$; the next sub-interval is chosen solely based on the boolean condition $p^{(t+1)} < p^{(t)}$. \textcolor{red}{(need proof) Nonetheless, for the GRAND-SLAM model, $p^{(t+1)}$ will always fall inside $[l, r]$, since for a concave log-likelihood of a scalar parameter, a single EM step will never overshoot the maximum likelihood estimate.}
 \end{itemize}
 
-\section{Estimating RNA half-life}
+\section{Estimating RNA production and decay}
 
 State variable
 \begin{itemize}
-    \item $a$: total abundance of RNA species
+    \item $a$: total abundance of RNA species (dimensions = reads)
 \end{itemize}
 Parameters
 \begin{itemize}
-    \item $\sigma$: transcription rate
-    \item $\delta$: decay rate
+    \item $\sigma$: transcription rate (dimensions = reads / time)
+    \item $\delta$: decay rate (dimensions = 1 / time)
 \end{itemize}
 The governing first-order ODE model is
 $$
@@ -529,42 +529,180 @@ $$
 &= 1 - e^{-t \delta}
 \end{aligned}
 $$
+
+\subsection{Decay rate}
+
 This can be used to estimate the decay rate (here, expressing the decay rate $\delta$ as a function of the random variable $\pi$, for which we have approximated its posterior distribution with a beta distribution $b_g(\pi_g; \alpha_g, \beta_g)$)
 $$
-\delta_t(\pi) = -\frac{1}{t} \log(1 - \pi)
+\delta_t(\pi) = -\frac{1}{t} \log(1 - \pi).
 $$
-with inverse function
-$$
-\pi_t(\delta) = 1 - e^{-t \delta}.
-$$
-Then, the posterior density function of $\delta_t$ (posterior density because we are using the posterior density of $\pi_g$) is
+Since $\delta_t(\pi)$ is a differentiable and invertible function (with inverse $\pi_t(\delta) = 1 - e^{-t \delta}$), the posterior\footnote{$d(\delta; \alpha_g, \beta_g)$ is a \emph{posterior} density because it is a transformation of the \emph{posterior} density of $\pi_g$} density function of $\delta_t$ is given by the change of variables formula (also known as the method of transformations)
 $$
 \begin{aligned}
-d(\delta; \alpha_g, \beta_g)
-&= \beta_g(\pi_t(\delta); \alpha_g, \beta_g) \left\lvert \frac{d\pi_t(\delta)}{d\delta} \right\rvert \\
-&= \frac{(\pi_t(\delta))^{\alpha_g - 1} (1 - (\pi_t(\delta)))^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta} \\
-&= \frac{(1 - e^{-t \delta})^{\alpha_g - 1} (e^{-t \delta})^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta} \\
-&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta})^{\alpha_g - 1} e^{-t \beta_g \delta + t \delta} e^{-t \delta} \\
-&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta})^{\alpha_g - 1} e^{-t \beta_g \delta}
+d_g(\delta_g; \alpha_g, \beta_g)
+&= \beta_g(\pi_t(\delta_g); \alpha_g, \beta_g) \left\lvert \frac{d\pi_t(\delta_g)}{d\delta_g} \right\rvert \\
+&= \frac{(\pi_t(\delta_g))^{\alpha_g - 1} (1 - (\pi_t(\delta_g)))^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta_g} \\
+&= \frac{(1 - e^{-t \delta_g})^{\alpha_g - 1} (e^{-t \delta_g})^{\beta_g - 1}}{B(\alpha_g, \beta_g)} t e^{-t \delta_g} \\
+&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta_g})^{\alpha_g - 1} e^{-t \beta_g \delta_g + t \delta_g} e^{-t \delta_g} \\
+&= \frac{t}{B(\alpha_g, \beta_g)} (1 - e^{-t \delta_g})^{\alpha_g - 1} e^{-t \beta_g \delta_g}
 \end{aligned}
 $$
 with log posterior density
 $$
-\ell(\delta) = (\alpha_g - 1) \log(1 - e^{-t \delta}) - t \beta_g \delta + \text{const}.
+\ell(\delta_g) = (\alpha_g - 1) \log(1 - e^{-t \delta_g}) - t \beta_g \delta_g + \text{const}.
 $$
 
-Generalized to multiple observations across differnt timepoints, if approximate posterior beta densities with parameters $(\alpha_i, \beta_i)$ are available at labeling times $t_1, \dots, t_m$, then—assuming the experiments are conditionally independent given a shared decay rate—the combined log-posterior for $\delta$ is, up to an additive constant,
+Generalizing to multiple observations across different timepoints is a bit tricky. Since the (approximate) posterior of $\pi_g^{(i)}$ at timepoint $t_i$ is a $\mathrm{Beta}(\alpha_g^{(i)}, \beta_g^{(i)})$ distribution, and a uniform prior $p(\pi_g^{(i)}) \sim \mathrm{Beta}(1, 1)$ was used, the (approximate) likelihood is
 $$
-\ell(\delta)
-= \sum_{i=1}^m (\alpha_i - 1) \log\left(1 - e^{-t_i \delta}\right) - t_i \beta_i \delta + \text{const},
+\begin{aligned}
+L(\pi_g^{(i)} \mid \mathbf{y}^{(i)}, p_e^{(i)}, p_c^{(i)})
+&\propto \frac{f(\pi_g^{(i)} \mid \mathbf{y}^{(i)}, p_e^{(i)}, p_c^{(i)})}{p(\pi_g^{(i)})} \\
+&\propto f(\pi_g^{(i)} \mid \mathbf{y}^{(i)}, p_e^{(i)}, p_c^{(i)}) \\
+&\propto \left(\pi_g^{(i)}\right)^{\alpha_g^{(i)} - 1} (1 - \pi_g^{(i)})^{\beta_g^{(i)} - 1}.
+\end{aligned}
 $$
-which is equation (17) in Jürges et al. The MAP estimate is found numerically:
+Because likelihoods are functions of the \textit{data} rather than the parameters, they do not require a Jacobian determinant when changing variables.\footnote{See, for example, \url{https://stats.stackexchange.com/a/174979} or sections 2.8-2.9 of \textit{In All Likelihood} (2001) by Yudi Pawitan.} We therefore substitute the relationship $\pi_g^{(i)} = 1 - e^{-t_i \delta_g^{(i)}}$ directly into the likelihood:
 $$
-\hat{\delta}_{\mathrm{MAP}} = \argmax_{\delta \ge 0} \sum_{i=1}^m (\alpha_i - 1) \log\left(1 - e^{-t_i \delta}\right) - t_i \beta_i \delta.
+\begin{aligned}
+L(\delta_g^{(i)} | \mathbf{y}^{(i)}, p_e^{(i)}, p_c^{(i)}) 
+&\propto (1 - e^{-t_i \delta_g^{(i)}})^{\alpha_g^{(i)} - 1} (1 - (1 - e^{-t_i \delta_g^{(i)}}))^{\beta_g^{(i)} - 1} \\
+&= (1 - e^{-t_i \delta_g^{(i)}})^{\alpha_g^{(i)} - 1} (e^{-t_i \delta_g^{(i)}})^{\beta_g^{(i)} - 1} \\
+&= (1 - e^{-t_i \delta_g^{(i)}})^{\alpha_g^{(i)} - 1} e^{-t_i (\beta_g^{(i)} - 1) \delta_g^{(i)}}
+\end{aligned}
 $$
-and can be converted to the RNA half-life
+The joint likelihood over all samples is the product of the individual likelihoods:
 $$
-\hat{k} = \frac{\log 2}{\hat{\delta}_{\mathrm{MAP}}}.
+\begin{gathered}
+L_\text{joint}(\delta_g | \mathbf{y}, p_e, p_c)
+= \prod_{i=1}^m L(\delta_g | \mathbf{y}^{(i)}, p_e^{(i)}, p_c^{(i)}) \\
+l_\text{joint}(\delta_g)
+= \log L_\text{joint}(\delta_g | \mathbf{y}, p_e, p_c)
+= \sum_{i=1}^m \left(\alpha_g^{(i)} - 1 \right) \log \left(1 - e^{-t_i \delta_g} \right) -t_i (\beta_g^{(i)} - 1) \delta_g
+\end{gathered}
 $$
+The posterior distribution for $\delta_g$ is proportional to this likelihood multiplied by a \emph{single} prior $P(\delta_g)$
+$$
+P(\delta_g \mid \mathbf{y}, p_e, p_c) \propto P(\delta_g) \cdot L_\text{joint}(\delta_g | \mathbf{y}, p_e, p_c).
+$$
+and the log-posterior is
+$$
+\begin{aligned}
+\log P(\delta_g \mid \mathbf{y}, p_e, p_c)
+&= \log\left(P(\delta_g)\right) + l_\text{joint}(\delta_g) + \text{const} \\
+&= \log\left(P(\delta_g)\right) + \sum_{i=1}^m \left(\alpha_g^{(i)} - 1 \right) \log \left(1 - e^{-t_i \delta_g} \right) -t_i (\beta_g^{(i)} - 1) \delta_g + \text{const}
+\end{aligned}
+$$
+The MAP estimate of $\delta_g$ is then $\argmax_{\delta_g} \log P(\delta_g \mid \mathbf{y}, p_e, p_c)$, to be found numerically.
+
+Compare this derivation of the log-posterior density with that suggested by Jürges et al. equation (17):
+$$
+\ell_\text{agg}(\delta_g)
+= \sum_{i=1}^m (\alpha_g^{(i)} - 1) \log\left(1 - e^{-t_i \delta_g}\right) - t_i \beta_g^{(i)} \delta_g + \text{const}.
+$$
+By splitting the $-t_i \beta_g^{(i)} \delta_g$ term into $-t_i (\beta_g^{(i)} - 1) \delta_g - t_i \delta_g$, we can re-write the paper's equation as
+$$
+\begin{aligned}
+\ell_\text{agg}(\delta_g)
+&= \sum_{i=1}^m (\alpha_g^{(i)} - 1) \log\left(1 - e^{-t_i \delta_g}\right) - t_i (\beta_g^{(i)} - 1) \delta_g - t_i \delta_g + \text{const} \\
+&= l_\text{joint}(\delta_g) - \delta_g \sum_{i=1}^m t_i + \text{const}.
+\end{aligned}
+$$
+Comparing this to the true log-posterior derived above reveals the implied prior for the Jürges et al. posterior to be
+$$
+\begin{gathered}
+\log P(\delta_g; \{t_i\}_{i=1}^m) = - \delta_g \sum_{i=1}^m t_i \quad (+ \text{const}) \\
+P(\delta_g; \{t_i\}_{i=1}^m) \propto e^{-\delta_g \sum_{i=1}^m t_i}.
+\end{gathered}
+$$
+This means that the more timepoints sampled, or the later the timepoints sampled, the more aggressively the model's implied prior forces the estimate of $\delta_g$ toward $0$ (infinitely long half-lives). \textbf{In short, the timepoint-aggregated estimator $\hat{\delta}_g$ proposed by the authors is not true a MAP estimate and is biased by the timepoints chosen entirely independent of the underlying biological data.}
+
+Another way to see this is to exponentiate the log-posterior proposed by the paper to obtain the proposed posterior density
+$$
+d_g^{(\text{agg})}(\delta_g; \alpha_g^{(1)}, \beta_g^{(1)}, ..., \alpha_g^{(m)}, \beta_g^{(m)}) = \prod_{i=1}^m d_g(\delta_g; \alpha_g^{(i)}, \beta_g^{(i)}).
+$$
+Since each term $d_g(\delta; \alpha_g^{(i)}, \beta_g^{(i)})$ is already a posterior density, this product erroneously applies the $P(\delta_g)$ prior $m$ times. Furthermore, although the likelihood is invariant under reparameterization, the prior is not; applying the change of variables to the uniform prior on $\pi_g^{(i)}$ yields an exponential prior on $\delta_g^{(i)}$
+$$
+P(\delta_g^{(i)})
+= \underbrace{1}_{\text{Uniform}} \cdot \left\lvert \frac{d \pi_g^{(i)}(\delta_g^{(i)})}{d \delta_g^{(i)}} \right\rvert
+= t_i e^{-t_i \delta_g^{(i)}}.
+$$
+Multiplying $m$ such priors yields an aggregated pseudo-prior
+$$
+P(\delta_g; \{t_i\}_{i=1}^m)
+= \exp \left(- \delta_g \sum_{i=1}^m t_i \right) \prod_{i=1}^m t_i
+\propto e^{- \delta_g \sum_{i=1}^m t_i}.
+$$
+
+\subsection{Half-life}
+
+Half-life is related to decay rate by
+$$\lambda_g(\delta_g) = \frac{\log 2}{\delta_g}$$
+with inverse $\delta_g(\lambda_g) = \frac{\log 2}{\lambda_g}$. GRAND-SLAM uses the plug-in estimate
+$$
+\hat{\lambda}_{g, \text{plug-in}} = \frac{\log 2}{\hat{\delta}_g}.
+$$
+This plug-in estimate is not the MAP estimate, even if the MAP estimate is used for $\hat{\delta}_g$.\footnote{In general, the MAP estimator is not functionally invariant, unlike the maximum likelihood estimator: ``if $\hat{\theta}$ is the MLE for $\theta$, and if $g(\theta)$ is any transformation of $\theta$, then the MLE for $\alpha = g(\theta)$ is by definition $\hat{\alpha} = g(\hat{\theta})$.'' [\href{https://en.wikipedia.org/wiki/Maximum_likelihood_estimation\#Functional_invariance}{Wikipedia}]} By the change of variables formula, the posterior and log posterior distributions of $\lambda_g$ are
+$$
+\begin{aligned}
+p_{\Lambda_g}(\lambda_g)
+&= d_g\left(\frac{\log 2}{\lambda_g}\right) \left\lvert \frac{d\delta_g}{d\lambda_g} \right\rvert
+= d_g\left(\frac{\log 2}{\lambda_g}\right) \frac{\log 2}{\lambda_g^2} \\
+\log_{\Lambda_g}(\lambda_g) &= \log d_g\left(\frac{\log 2}{\lambda_g}\right) - 2 \log \lambda_g + \log(\log 2).
+\end{aligned}
+$$
+The MAP half-life estimate is therefore
+$$
+\hat{\lambda}_{g, \text{MAP}}
+= \argmax_\lambda \log_{\Lambda_g}(\lambda)
+= \argmax_\lambda \log d_g\left(\frac{\log 2}{\lambda}\right) - 2 \log \lambda
+$$
+which can be found numerically.
+
+Notably, it is provably distinct from the plug-in estimate. Specifically, the MAP half-life estimate must be a root of the first derivative of the log posterior:
+$$
+\frac{d}{d\lambda} \log_{\Lambda_g}(\lambda)
+= \left[\left. \frac{d}{d\delta} \log d_g(\delta) \right|_{\delta = \frac{\log 2}{\lambda}} \cdot \frac{d \delta}{d \lambda} \right] - \frac{2}{\lambda} + 0.
+$$
+Applying the plug-in estimate based on the decay rate MAP yields
+$$
+\begin{aligned}
+\frac{d}{d\lambda} \log_{\Lambda_g}(\hat{\lambda}_{g, \text{plug-in}})
+&= \left[\left. \frac{d}{d\delta} \log d_g(\delta) \right|_{\delta = \frac{\log 2}{\hat{\lambda}_{g, \text{plug-in}}}} \cdot \frac{d \delta}{d \lambda} \right] - \frac{2}{\hat{\lambda}_{g, \text{plug-in}}} \\
+&= \left[\left. \frac{d}{d\delta} \log d_g(\delta) \right|_{\hat{\delta}_g} \cdot \frac{d \delta}{d \lambda} \right] - \frac{2}{\hat{\lambda}_{g, \text{plug-in}}} \\
+&= - \frac{2}{\hat{\lambda}_{g, \text{plug-in}}}
+\end{aligned}
+$$
+where the last equality uses the fact that $\hat{\delta}_g$ is the MAP estimate for $\delta_g$, so the first derivative of the log-posterior of $\delta_g$ must be 0 when evaluated at $\hat{\delta}_g$. Since the first derivative of the log-posterior of the half-life parameter $\lambda_g$ is not 0 at the plug-in estimate, that estimate is not the mode of the posterior distribution.
+
+% and would have to be estimated numerically. Compared to the log-posterior distribution of $\delta_g$, however, this objective functions contains an extra $-2 \log(\lambda)$. One can see, however, that simply using the plug-in estimate $\hat{\lambda}_{g, \text{plug-in}} = \frac{\log 2}{\hat{\delta}_g}$ would give
+% $$
+% \log d\left(\hat{\delta}_g\right) - 2 \log \frac{\log 2}{\hat{\delta}_g}
+% $$
+
+% and can be converted to an estimated RNA half-life
+
+\subsection{Production rate}
+
+RNA production rate is related to decay rate by
+$$
+\sigma_g = s(\delta_g) = \delta_g \cdot a_g
+$$
+with inverse $\delta_g = s^{-1}(\sigma_g) = \frac{\sigma_g}{a_g}$, where $a_g$ is the total (steady-state) RNA abundance. The plug-in estimator is simply
+$$
+\hat{\sigma}_g = \hat{\delta}_g \cdot a_g.
+$$
+Its interpretation depends on how one treats the total (steady-state) RNA abundance $a_g$:
+\begin{itemize}
+\item If $a_g$ is considered a known, fixed constant, then the posterior distribution of $\sigma_g$ is
+$$
+p_\sigma(\sigma_g)
+= d(s^{-1}(\sigma_g)) \left\lvert\frac{ds^{-1}}{d\sigma_g}\right\rvert
+= d\left(\frac{\sigma_g}{a_g}\right) \frac{1}{a_g}
+$$
+Because linear transformations do not shift the mode, $\hat{\sigma}_g$ is a valid MAP estimator. Credible intervals are simply $[\delta_\text{lower} \cdot a_g, \delta_\text{upper} \cdot a_g]$.
+\item If $a_g$ is instead considered a random variable containing biological and/or measurement noise, then one must consider the joint posterior $P(\sigma_g, \delta_g | \mathbf{y}, p_e, p_c)$.
+\end{itemize}
+
+\textcolor{red}{TODO: (1) Explain how to utilize all timepoints/samples for estimating production rate. (2) Currently, the production rate is in dimensions of reads/time, which depends on sequencing depth and other auxilliary factors. Determine how to estimate a normalized production rate to allow comparing across sequencing depths and samples.}
 
 \end{document}
