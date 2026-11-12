@@ -17,7 +17,7 @@
 \begin{document}
 
 \maketitle
-\renewcommand{\baselinestretch}{0.75}\normalsize
+\renewcommand{\baselinestretch}{0.5}\normalsize
 \tableofcontents
 \renewcommand{\baselinestretch}{1.0}\normalsize
 
@@ -673,13 +673,6 @@ $$
 \end{aligned}
 $$
 where the last equality uses the fact that $\hat{\delta}_g$ is the MAP estimate for $\delta_g$, so the first derivative of the log-posterior of $\delta_g$ must be 0 when evaluated at $\hat{\delta}_g$. Since the first derivative of the log-posterior of the half-life parameter $\lambda_g$ is not 0 at the plug-in estimate, that estimate is not the mode of the posterior distribution.
-
-% and would have to be estimated numerically. Compared to the log-posterior distribution of $\delta_g$, however, this objective functions contains an extra $-2 \log(\lambda)$. One can see, however, that simply using the plug-in estimate $\hat{\lambda}_{g, \text{plug-in}} = \frac{\log 2}{\hat{\delta}_g}$ would give
-% $$
-% \log d\left(\hat{\delta}_g\right) - 2 \log \frac{\log 2}{\hat{\delta}_g}
-% $$
-
-% and can be converted to an estimated RNA half-life
 
 \subsection{Production rate}
 
